@@ -136,7 +136,7 @@ public:
 	}
 };
 
-//Output that shows the instruction count, most recent memory value, its instructions, and all 100 memory locations. 
+//Output that shows the instruction count, most recent memory value, its instructions, and all 1000 memory locations. 
 void memoryDump(vector<Instruction> &memory)
 {
 	string operationDisplayCheck = to_string(operationCodeDisplay);
