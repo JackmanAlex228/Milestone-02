@@ -11,6 +11,8 @@ ADD         30    number in memory location + number in accumulator (keep result
 SUB         31
 DIV         32
 MULT        33
+REMAINDER   34
+EXPONENT    35
 Control operations
 BRANCH      40    branch into specific location in memory
 BRANCHNEG   41
@@ -396,6 +398,43 @@ void Calculate_Operations(vector<Instruction> &memory) {
 			}
 			break;
 		}
+				//Remainder: Divide a word from a specific location in memory by the word in the accumulator and store the remainder
+		case 34: {
+			//Verify the number isn't 0
+			int denominator = memory.at(memoryLocation).getValue();
+			if (denominator != 0) {
+				accumulator = accumulator % denominator;
+			}
+			else {
+				cout << "CRITICAL ERROR: Cannot Divide by 0." << endl;
+				memoryDump(memory);
+			}
+			break;
+		}
+				//Exponent: Raise a word in a specific location in memory by the value in the accumulator and store the result
+		case 35: {
+
+			//Make sure the result is in range
+			int value = 1;
+			int count = 0;
+			int exponent = accumulator;
+			int multiplier = memory.at(memoryLocation).getValue();
+			while (count < exponent)
+			{
+				value *= multiplier;
+				count++;
+			}
+
+			if (value <= 99999) {
+				accumulator = value;
+			}
+			else
+			{
+				cout << "CRITICAL ERROR: Exponential operation bigger than 99999." << endl;
+				memoryDump(memory);
+			}
+			break;
+		}
 
 				 //Branch to a specific location in memory.
 		case 40: {
@@ -512,6 +551,8 @@ int main(int argc, const char * argv[])
 	vecptr->push_back(Menu(31, "SUB"));
 	vecptr->push_back(Menu(32, "DIV"));
 	vecptr->push_back(Menu(33, "MULT"));
+	vecptr->push_back(Menu(34, "REMAIN"));
+	vecptr->push_back(Menu(35, "EXPONENT"));
 	vecptr->push_back(Menu(40, "BRANCH"));
 	vecptr->push_back(Menu(41, "BRANCHNEG"));
 	vecptr->push_back(Menu(42, "BRANCHZERO"));
