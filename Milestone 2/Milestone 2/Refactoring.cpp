@@ -18,10 +18,8 @@ BRANCH      40    branch into specific location in memory
 BRANCHNEG   41
 BRANCHZERO  42
 HALT        43
-Debugging opreations
+Debugging operations
 MEMDUMP            print the memory image on the screen
-BREAK
-CONTINUE
 Terminate        -99999
 */
 
@@ -39,11 +37,12 @@ Terminate        -99999
 
 using namespace std;
 
-#define MIM_DIGITS 4
-#define MAX_DIGITS 6
+#define MIM_DIGITS 3
+#define MAX_DIGITS 5
 #define NUM_ZERO 0
 #define MEMORY_SIZE 1000
 #define TERMINATE -99999
+#define PROGRAMEND -11111
 
 
 int calculateOperations(int command, int location);
@@ -52,13 +51,34 @@ string fixMyString(int rawValue);
 int instructCount = 0;
 int accumulator = 0;
 
+//Pseudo-accums to hold data for use in main accumulator
+int accumOneHolder = 0;
+int accumTwoHolder = 0;
+
+//To hold the operation value until the for-loop loops for the memory loc.
+int operationHolder = 0;
+
+//To keep track of our place in each program.
+int programOneCtr;
+int programTwoCtr;
+
+//Where the -11111 split is.
+int programTwoStartLoc = 0;
+
+//To signal Program 1 or 2 is done.
+bool isProgramOneDone;
+bool isProgramTwoDone;
+
+//To disallow additional -11111 codes after one has been used.
+bool isProgramEndFlagged = false;
+
+
 int instructRegisterDisplay = 0;
 int operationCodeDisplay = 0;
 int operandDisplay = 0;
 
 
-//Menu Object for outputting the options available, 
-//Tyler could add the Exponential/Remainder operations as Menu Objects -Scott's take on this method
+//Menu Object for outputting the options available
 class Menu
 {
 private:
@@ -245,34 +265,78 @@ void parseInput(string &input, vector<Menu> &vMenu, vector<Instruction> &vMemory
 			if (stoi(input) == NUM_ZERO)
 			{
 				vMemory.push_back(Instruction(0, 0));
+				operationHolder = -1;	
 			}
-			else
+			//Operation
+			else if (input.at(0) != '0')
 			{
-				operation = stoi(input.substr(0, 2));
-				operand = stoi(input.substr(2, 3));
-
-				//Checking if the command (variable operation) exists in the Menu vector,
-				//If it exists, store in mainMemory and flag it as a good instruction.
-				bool isInstructionValid = false;
-				for (int menuCheck = 0; menuCheck < vMenu.size(); menuCheck++)
+				if (operationHolder == 0 || operationHolder == -1)
 				{
-					if (vMenu.at(menuCheck).getCode() == operation)
+					operation = stoi(input.substr(0, 2));
+
+					//Checking if the command (variable operation) exists in the Menu vector,
+					//If it exists, store in mainMemory and flag it as a good instruction.
+					bool isInstructionValid = false;
+					for (int menuCheck = 0; menuCheck < vMenu.size(); menuCheck++)
 					{
-						if (operand >= NUM_ZERO && operand < MEMORY_SIZE) {
-							//std::cout << "Instruction entered is valid." << endl;
-							vMemory.push_back(Instruction(operation, operand));
+						if (vMenu.at(menuCheck).getCode() == operation)
+						{
+							//cout << "Operation entered is valid." << endl;
+							if (operation != 43)
+							{
+								operationHolder = operation;
+							}
+							//Halt has no memory required, so skipping requirements for a memory location
+							else
+							{
+								vMemory.push_back(Instruction(operation, 0));
+								operationHolder = -1;
+							}
+							
 							isInstructionValid = true;
 							instructCount++;
 						}
 					}
+					if (!isInstructionValid)
+					{
+						cout << "Invalid operation. Please try again." << endl;
+					}
 				}
-				if (!isInstructionValid)
+				else
 				{
-					cout << "Invalid instruction. Please try again." << endl;
-
+					cout << "Invalid input. Please enter a Memory Location for the previous Operation." << endl;
 				}
 			}
+			//Memory Location
+			else if (input.at(0) == '0')
+			{
+				if (stoi(input) <= 999)
+				{
+					operand = stoi(input.substr(1, 3));
+					
+					if (operationHolder != 0)
+					{
+						vMemory.push_back(Instruction(operationHolder, operand));
 
+						//Reset OperationHolder
+						operationHolder = 0;
+					}
+					//For Halt, -11111, and 0000 inputs.
+					else if (operationHolder == -1)
+					{
+						operationHolder = 0;
+					}
+					else
+					{
+						cout << "No Matching Operation for this Memory Location." << endl;
+						cout << "Please enter a valid Operation before a Memory Location." << endl;
+					}
+				}
+				else
+				{
+					cout << "Invalid memory location. Please try again." << endl;
+				}
+			}
 		}
 		else {
 			cout << "Invalid instruction length. Please try again." << endl;
@@ -283,10 +347,26 @@ void parseInput(string &input, vector<Menu> &vMenu, vector<Instruction> &vMemory
 		std::cout << "Instruction input complete.\n";
 		menuQuit = true;
 	}
-	//else if (stoi(input) == PROGRAMEND) { // SOMETHING
-	//	std::cout << "Program instruction input complete.\n";
-	//	menuQuit = true;
-	//}
+	else if (stoi(input) == PROGRAMEND) { // -11111
+		if (isProgramEndFlagged == false)
+		{
+			std::cout << "Program Instructions complete. \n";
+			std::cout << "Please enter the next Program's instructions,\n";
+			std::cout << "or type -99999 to execute instructions.\n";
+		
+			vMemory.push_back(Instruction(0, 0));
+			vMemory.back().setValue(PROGRAMEND);
+			
+			//Where -11111 was placed in memory as a starting point to Program 2.
+			programTwoStartLoc = vMemory.size();
+			operationHolder = -1;
+			isProgramEndFlagged = true;
+		}
+		else
+		{
+			cout << "Program End has already been used. This Program allows a maximum of two programs at once." << endl;
+		}
+	}
 	else
 	{
 		cout << "Invalid input. Please try again." << endl;
@@ -296,185 +376,425 @@ void parseInput(string &input, vector<Menu> &vMenu, vector<Instruction> &vMemory
 //Initial loop thru our memory array.
 //Calls overloaded method to determine and execute the instructions.
 void Calculate_Operations(vector<Instruction> &memory) {
+	
+	string inputOne;
+	string inputTwo;
 
-	string input;
+	//Setting up Counters
+	programOneCtr = 0;
+	programTwoCtr = programTwoStartLoc;
+	
+	//Setting program done flags
+	isProgramOneDone = false;
+	isProgramTwoDone = false;
 
-	//Initial loop through memory array.
-	for (int index = 0; index < memory.size(); index++) {
+	//Loop through memory array, each respective counter works until bool flag saying they're done..
+	while (isProgramOneDone == false || isProgramTwoDone == false)
+	{
+	
+		//Program 1
+		if (isProgramOneDone == false && programOneCtr < MEMORY_SIZE && (programOneCtr < programTwoStartLoc || memory.at(programOneCtr).getValue() != PROGRAMEND))
+		{
+			int command = memory.at(programOneCtr).getOperation();
+			int memoryLocation = memory.at(programOneCtr).getOperand();
 
-		int command = memory.at(index).getOperation();
-		int memoryLocation = memory.at(index).getOperand();
+			//For Display purposes in memoryDump() 
+			operationCodeDisplay = command;
+			operandDisplay = memoryLocation;
 
-		//For Display purposes in memoryDump() 
-		operationCodeDisplay = command;
-		operandDisplay = memoryLocation;
+			//To determine which Command has been sent, and execute calculations. -Scott
+			switch (command) {
 
-		//To determine which Command has been sent, and execute calculations. -Scott
-		switch (command) {
+					// Read a word from the keyboard into a specific location in memory.
+				case 10: {
 
-			// Read a word from the keyboard into a specific location in memory.
-		case 10: {
+					//Input loop, if they give a value bigger than 4 digits or leave it blank
+					do {
+						cout << "Program One: Please enter a number between 1 and 99999: ";
+						cin >> inputOne;
 
-			//Input loop, if they give a value bigger than 4 digits or leave it blank
-			do {
-				cout << "Please enter a number between 1 and 99999: ";
-				cin >> input;
+					} while (inputOne.length() > 5 || inputOne.length() == 0);
 
-			} while (input.length() > 5 || input.length() == 0);
+					memory.at(memoryLocation).setValue(stoi(inputOne));
+					//cout << "Saving to Memory Location: " << memoryLocation << endl;
+					break;
+				}
+						 // Write output to screen.
+				case 11: {
 
-			memory.at(memoryLocation).setValue(stoi(input));
-			//cout << "Saving to Memory Location: " << memoryLocation << endl;
-			break;
-		}
+					//Need to work on how to display negative values.
+					string outputStyle = fixMyString(memory.at(memoryLocation).getValue());
+					cout << "Program One: Contents of Memory Location " << fixMyString(memoryLocation) << ": " << outputStyle << endl;
+					break;
+				}
+						 //Load a word from a specific location in memory into the accumulator.
+				case 20: {
 
-				 // Write output to screen.
-		case 11: {
+					accumOneHolder = memory.at(memoryLocation).getValue();
+					//cout << "Loaded " << memory.at(memoryLocation).getValue() << " from Memory Location " << memoryLocation << " into the Accumulator." << endl;
+					break;
+				}
+						 //Store from accumulator to main memory
+				case 21: {
 
-			//Need to work on how to display negative values.
-			string outputStyle = fixMyString(memory.at(memoryLocation).getValue());
-			cout << "Contents of Memory Location " << fixMyString(memoryLocation) << ": " << outputStyle << endl;
-			break;
-		}
+					memory.at(memoryLocation).setValue(accumOneHolder);
+					//cout << accumulator << " loaded from Accumulator to Memory Location " << memoryLocation << endl;
+					break;
+				}
+						 //Addition: Add a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 30: {
+					
+					accumulator = accumOneHolder;
+					accumulator += memory.at(memoryLocation).getValue();
+					accumOneHolder = accumulator;
+					accumulator = 0;
+					break;
+				}
+						 //Subtraction: Subtract a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 31: {
 
-				 //Load a word from a specific location in memory into the accumulator.
-		case 20: {
+					accumulator = accumOneHolder;
+					accumulator = accumulator - memory.at(memoryLocation).getValue();
+					accumOneHolder = accumulator;
+					accumulator = 0;
+					//cout << "Subtraction Complete" << endl;
+					break;
+				}
+						 //Division: Divide the word in the accumulator by the word from a specific location in memory (leave the result in the accumulator).
+				case 32: {
 
-			accumulator = memory.at(memoryLocation).getValue();
-			//cout << "Loaded " << memory.at(memoryLocation).getValue() << " from Memory Location " << memoryLocation << " into the Accumulator." << endl;
-			break;
-		}
+					//Divisor can't be 0
+					int denominator = memory.at(memoryLocation).getValue();
+					if (denominator != 0) {
 
-				 //Store from accumulator to main memory
-		case 21: {
+						accumulator = accumOneHolder;
+						accumulator = accumulator / denominator;
+						accumOneHolder = accumulator;
+						accumulator = 0;
+					}
+					else {
+						cout << "Program One: CRITICAL ERROR: Cannot Divide by 0." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Multiplication: Multiply a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 33: {
 
-			memory.at(memoryLocation).setValue(accumulator);
-			//cout << accumulator << " loaded from Accumulator to Memory Location " << memoryLocation << endl;
-			break;
-		}
+					int multiplier = memory.at(memoryLocation).getValue();
+					if (accumOneHolder * multiplier <= 99999) {
 
-				 //Addition: Add a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
-		case 30: {
+						accumulator = accumOneHolder;
+						accumulator *= multiplier;
+						accumOneHolder = accumulator;
+						accumulator = 0; 
+						//cout << "Multiplication Complete " << accumulator << endl;
+					}
+					else
+					{
+						cout << "Program One: CRITICAL ERROR: Multiplication operation bigger than 99999." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Remainder: Divide a word from a specific location in memory by the word in the accumulator and store the remainder
+				case 34: {
+					//Verify the number isn't 0
+					int denominator = memory.at(memoryLocation).getValue();
+					if (denominator != 0) {
 
-			accumulator += memory.at(memoryLocation).getValue();
-			//cout << "Addition Complete" << endl;
-			break;
-		}
+						accumulator = accumOneHolder;
+						accumulator = accumulator % denominator;
+						accumOneHolder = accumulator;
+						accumulator = 0;
+						
+					}
+					else {
+						cout << "Program One: CRITICAL ERROR: Cannot Divide by 0." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Exponent: Raise a word in a specific location in memory by the value in the accumulator and store the result
+				case 35: {
 
-				 //Subtraction: Subtract a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
-		case 31: {
+					//Make sure the result is in range
+					int value = 1;
+					int count = 0;
+					accumulator = accumOneHolder;
+					int exponent = accumulator;
+					int multiplier = memory.at(memoryLocation).getValue();
+					while (count < exponent)
+					{
+						value *= multiplier;
+						count++;
+					}
 
-			accumulator = accumulator - memory.at(memoryLocation).getValue();
-			//cout << "Subtraction Complete" << endl;
-			break;
-		}
+					if (value <= 99999) {
 
-				 //Division: Divide the word in the accumulator by the word from a specific location in memory (leave the result in the accumulator).
-		case 32: {
+						accumulator = value;
+						accumOneHolder = accumulator;
+						accumulator = 0;
+					}
+					else
+					{
+						cout << "Program One: CRITICAL ERROR: Exponential operation bigger than 99999." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Branch to a specific location in memory.
+				case 40: {
 
-			//Divisor can't be 0
-			int denominator = memory.at(memoryLocation).getValue();
-			if (denominator != 0) {
-				accumulator = accumulator / denominator;
+					/* Memory Locations relate to the for-loop position in the vector,
+					simply setting the index value in our for loop to match(- 1
+					so it'll run it) to simulate branching -Scott */
+					//cout << "Branching to Memory Location: " << memoryLocation << endl;
+					programOneCtr = memoryLocation - 1;
+					break;
+				}
+						 //BranchNeg: Branch to a specific location in memory if result from input(s) is Negative.
+				case 41: {
+
+					accumulator = accumOneHolder;
+					if (accumulator < 0)
+					{
+						//cout << "BranchNeg - Branching to Memory Location: " << memoryLocation << endl;
+						programOneCtr = memoryLocation - 1;
+					}
+					accumOneHolder = accumulator;
+					accumulator = 0;
+					break;
+				}
+						 //BranchZero: Branch to a specific location in memory if result from input(s) is 0.
+				case 42: {
+
+					accumulator = accumOneHolder;
+					if (accumulator == 0)
+					{
+						//cout << "BranchZero - Branching to Memory Location: " << memoryLocation << endl;
+						programOneCtr = memoryLocation - 1;
+					}
+					accumOneHolder = accumulator;
+					accumulator = 0;
+					break;
+				}
+						 // Halt: Stop program completely and exit.
+				case 43: {
+					isProgramOneDone = true;
+					//cout << "Program One Complete." << endl;
+					break;
+				}
 			}
-			else {
-				cout << "CRITICAL ERROR: Cannot Divide by 0." << endl;
-				memoryDump(memory);
-			}
-			break;
+			programOneCtr++;
+		}
+		else
+		{
+			isProgramOneDone = true;
 		}
 
-				 //Multiplication: Multiply a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
-		case 33: {
 
-			int multiplier = memory.at(memoryLocation).getValue();
-			if (accumulator * multiplier <= 99999) {
-				accumulator *= multiplier;
-				//cout << "Multiplication Complete " << accumulator << endl;
+		//Program 2
+		if (isProgramEndFlagged == true && isProgramTwoDone == false && programTwoCtr < MEMORY_SIZE)
+		{
+			int command = memory.at(programTwoCtr).getOperation();
+			int memoryLocation = memory.at(programTwoCtr).getOperand();
+
+			//For Display purposes in memoryDump() 
+			operationCodeDisplay = command;
+			operandDisplay = memoryLocation;
+
+			//To determine which Command has been sent, and execute calculations. -Scott
+			switch (command) {
+
+					// Read a word from the keyboard into a specific location in memory.
+				case 10: {
+
+					//Input loop, if they give a value bigger than 4 digits or leave it blank
+					do {
+						cout << "Program Two: Please enter a number between 1 and 99999: ";
+						cin >> inputTwo;
+
+					} while (inputTwo.length() > 5 || inputTwo.length() == 0);
+
+					memory.at(memoryLocation).setValue(stoi(inputTwo));
+					//cout << "Saving to Memory Location: " << memoryLocation << endl;
+					break;
+				}
+						 // Write output to screen.
+				case 11: {
+
+					//Need to work on how to display negative values.
+					string outputStyle = fixMyString(memory.at(memoryLocation).getValue());
+					cout << "Program Two: Contents of Memory Location " << fixMyString(memoryLocation) << ": " << outputStyle << endl;
+					break;
+				}
+						 //Load a word from a specific location in memory into the accumulator.
+				case 20: {
+
+					accumTwoHolder = memory.at(memoryLocation).getValue();
+					//cout << "Loaded " << memory.at(memoryLocation).getValue() << " from Memory Location " << memoryLocation << " into the Accumulator." << endl;
+					break;
+				}
+						 //Store from accumulator to main memory
+				case 21: {
+
+					memory.at(memoryLocation).setValue(accumTwoHolder);
+					//cout << accumulator << " loaded from Accumulator to Memory Location " << memoryLocation << endl;
+					break;
+				}
+						 //Addition: Add a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 30: {
+
+					accumulator = accumTwoHolder;
+					accumulator += memory.at(memoryLocation).getValue();
+					accumTwoHolder = accumulator;
+					accumulator = 0;
+					
+					//cout << "Addition Complete" << endl;
+					break;
+				}
+						 //Subtraction: Subtract a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 31: {
+
+					accumulator = accumTwoHolder;
+					accumulator = accumulator - memory.at(memoryLocation).getValue();
+					accumTwoHolder = accumulator;
+					accumulator = 0;
+					//cout << "Subtraction Complete" << endl;
+					break;
+				}
+						 //Division: Divide the word in the accumulator by the word from a specific location in memory (leave the result in the accumulator).
+				case 32: {
+
+					//Divisor can't be 0
+					int denominator = memory.at(memoryLocation).getValue();
+					if (denominator != 0) {
+
+						accumulator = accumTwoHolder;
+						accumulator = accumulator / denominator;
+						accumTwoHolder = accumulator;
+						accumulator = 0;
+						
+					}
+					else {
+						cout << "Program Two: CRITICAL ERROR: Cannot Divide by 0." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Multiplication: Multiply a word from a specific location in memory to the word in the accumulator (leave the result in the accumulator).
+				case 33: {
+
+					int multiplier = memory.at(memoryLocation).getValue();
+					if (accumTwoHolder * multiplier <= 99999) {
+
+						accumulator = accumTwoHolder;
+						accumulator *= multiplier;
+						accumTwoHolder = accumulator;
+						accumulator = 0;
+						//cout << "Multiplication Complete " << accumulator << endl;
+					}
+					else
+					{
+						cout << "Program Two: CRITICAL ERROR: Multiplication operation bigger than 99999." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Remainder: Divide a word from a specific location in memory by the word in the accumulator and store the remainder
+				case 34: {
+					//Verify the number isn't 0
+					int denominator = memory.at(memoryLocation).getValue();
+					if (denominator != 0) {
+						
+						accumulator = accumTwoHolder;
+						accumulator = accumulator % denominator;
+						accumTwoHolder = accumulator;
+						accumulator = 0;
+					}
+					else {
+						cout << "Program Two: CRITICAL ERROR: Cannot Divide by 0." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Exponent: Raise a word in a specific location in memory by the value in the accumulator and store the result
+				case 35: {
+
+					//Make sure the result is in range
+					int value = 1;
+					int count = 0;
+					accumulator = accumTwoHolder;
+					int exponent = accumulator;
+					int multiplier = memory.at(memoryLocation).getValue();
+					while (count < exponent)
+					{
+						value *= multiplier;
+						count++;
+					}
+
+					if (value <= 99999) {
+						accumulator = value;
+						accumTwoHolder = accumulator;
+						accumulator = 0;
+					}
+					else
+					{
+						cout << "Program Two: CRITICAL ERROR: Exponential operation bigger than 99999." << endl;
+						memoryDump(memory);
+					}
+					break;
+				}
+						 //Branch to a specific location in memory.
+				case 40: {
+
+					/* Memory Locations relate to the for-loop position in the vector,
+					simply setting the index value in our for loop to match(- 1
+					so it'll run it) to simulate branching -Scott */
+					//cout << "Branching to Memory Location: " << memoryLocation << endl;
+					programTwoCtr = memoryLocation - 1;
+					break;
+				}
+						 //BranchNeg: Branch to a specific location in memory if result from input(s) is Negative.
+				case 41: {
+					
+					accumulator = accumTwoHolder;
+					if (accumulator < 0)
+					{
+						//cout << "BranchNeg - Branching to Memory Location: " << memoryLocation << endl;
+						programTwoCtr = memoryLocation - 1;
+					}
+					accumTwoHolder = accumulator;
+					accumulator = 0;
+					break;
+				}
+						 //BranchZero: Branch to a specific location in memory if result from input(s) is 0.
+				case 42: {
+
+					accumulator = accumTwoHolder;
+					if (accumulator == 0)
+					{
+						//cout << "BranchZero - Branching to Memory Location: " << memoryLocation << endl;
+						programTwoCtr = memoryLocation - 1;
+					}
+					accumTwoHolder = accumulator;
+					accumulator = 0;
+					break;
+				}
+						 // Halt: Stop program completely and exit.
+				case 43: {
+					//cout << "Program Two complete." << endl;
+					break;
+				}
 			}
-			else
-			{
-				cout << "CRITICAL ERROR: Multiplication operation bigger than 99999." << endl;
-				memoryDump(memory);
-			}
-			break;
+			programTwoCtr++;
 		}
-				//Remainder: Divide a word from a specific location in memory by the word in the accumulator and store the remainder
-		case 34: {
-			//Verify the number isn't 0
-			int denominator = memory.at(memoryLocation).getValue();
-			if (denominator != 0) {
-				accumulator = accumulator % denominator;
-			}
-			else {
-				cout << "CRITICAL ERROR: Cannot Divide by 0." << endl;
-				memoryDump(memory);
-			}
-			break;
-		}
-				//Exponent: Raise a word in a specific location in memory by the value in the accumulator and store the result
-		case 35: {
-
-			//Make sure the result is in range
-			int value = 1;
-			int count = 0;
-			int exponent = accumulator;
-			int multiplier = memory.at(memoryLocation).getValue();
-			while (count < exponent)
-			{
-				value *= multiplier;
-				count++;
-			}
-
-			if (value <= 99999) {
-				accumulator = value;
-			}
-			else
-			{
-				cout << "CRITICAL ERROR: Exponential operation bigger than 99999." << endl;
-				memoryDump(memory);
-			}
-			break;
+		else
+		{
+			isProgramTwoDone = true;
 		}
 
-				 //Branch to a specific location in memory.
-		case 40: {
-
-			/* Memory Locations relate to the for-loop position in the vector,
-			simply setting the index value in our for loop to match(- 1
-			so it'll run it) to simulate branching -Scott */
-			//cout << "Branching to Memory Location: " << memoryLocation << endl;
-			index = memoryLocation - 1;
-			break;
-		}
-
-				 //BranchNeg: Branch to a specific location in memory if result from input(s) is Negative.
-		case 41: {
-
-			if (accumulator < 0)
-			{
-				//cout << "BranchNeg - Branching to Memory Location: " << memoryLocation << endl;
-				index = memoryLocation - 1;
-			}
-			break;
-		}
-
-				 //BranchZero: Branch to a specific location in memory if result from input(s) is 0.
-		case 42: {
-
-			if (accumulator == 0)
-			{
-				//cout << "BranchZero - Branching to Memory Location: " << memoryLocation << endl;
-				index = memoryLocation - 1;
-			}
-			break;
-		}
-
-				 // Halt: Stop program completely and exit.
-		case 43: {
-			memoryDump(memory);
-			break;
-		}
-		}
 	}
 }
 
@@ -557,7 +877,9 @@ int main(int argc, const char * argv[])
 	vecptr->push_back(Menu(41, "BRANCHNEG"));
 	vecptr->push_back(Menu(42, "BRANCHZERO"));
 	vecptr->push_back(Menu(43, "HALT"));
-	vecptr->push_back(Menu(-99999, "Terminate"));
+	vecptr->push_back(Menu(-11111, "PROGRAM END"));
+	vecptr->push_back(Menu(-99999, "TERMINATE"));
+
 
 	//Future use to establish one program has finished, but there's more to go.
 	//vecptr->push_back(Menu(SOMETHING, "Program End"));
@@ -589,250 +911,50 @@ int main(int argc, const char * argv[])
 	//The instructions didn't have a halt code, so it finished.
 	memoryDump(*mainMemory);
 
+	
 	//M2 Test Cases:
 	/*
+	Test Case # 1 & # 2
 
-	Test case #1
-	10007
-	10008
-	20007
-	30008
-	21009
-	11009
-	43000
-	00000
-	00000
-	00000
-	-99999
+1000
+0007
+1000
+0008
+2000
+0007
+3000
+0008
+2100
+0009
+1100
+0009
+4300
+0000
+0000
+0000
+-11111
 
-	Test case #2
-	10009
-	10010
-	20009
-	31010
-	41007
-	11009
-	43000
-	11010
-	43000
-	00000
-	00000
-	-99999
+1000
+0020
+1000
+0021
+2000
+0020
+3100
+0021
+4100
+0018
+1100
+0020
+4300
+1100
+0021
+4300
+0000
+0000
+-99999
 
-
-	Test Case #3
-	(For loop that finds the lowest
-	value in 10 numbers)
-	10068
-	10069
-	10070
-	10071
-	10072
-	10073
-	10074
-	10075
-	10076
-	10077
-
-	20068
-	21078
-	20069
-	31078
-	41041
-	20070
-	31078
-	41044
-	20071
-	31078
-
-	41047
-	20072
-	31078
-	41050
-	20073
-	31078
-	41053
-	20074
-	31078
-	41056
-
-	20075
-	31078
-	41059
-	20076
-	31078
-	41062
-	20077
-	31078
-	41065
-	11078
-
-	43000
-	20069
-	21078
-	40012
-	20070
-	21078
-	40012
-	20071
-	21078
-	40012
-
-	20072
-	21078
-	40012
-	20073
-	21078
-	40012
-	20074
-	21078
-	40012
-	20075
-
-	21078
-	40012
-	20076
-	21078
-	40012
-	20077
-	21078
-	40012
-	00000
-	00000
-
-	00000
-	00000
-	00000
-	00000
-	00000
-	00000
-	00000
-	00000
-	00000
-	-99999
-
-	*/
-
-	//M1 Test Cases:
-	/*
-	Test case #1
-	1007
-	1008
-	2007
-	3008
-	2109
-	1109
-	4300
-	0000
-	0000
-	0000
-	-99999
-
-	Test case #2
-	1009
-	1010
-	2009
-	3110
-	4107
-	1109
-	4300
-	1110
-	4300
-	0000
-	0000
-	-99999
-
-
-	Test Case #3
-	1068
-	1069
-	1070
-	1071
-	1072
-	1073
-	1074
-	1075
-	1076
-	1077
-
-	2068
-	2178
-	2069
-	3178
-	4141
-	2070
-	3178
-	4144
-	2071
-	3178
-
-	4147
-	2072
-	3178
-	4150
-	2073
-	3178
-	4153
-	2074
-	3178
-	4156
-
-	2075
-	3178
-	4159
-	2076
-	3178
-	4162
-	2077
-	3178
-	4165
-	1178
-
-	4300
-	2069
-	2178
-	4012
-	2070
-	2178
-	4012
-	2071
-	2178
-	4012
-
-	2072
-	2178
-	4012
-	2073
-	2178
-	4012
-	2074
-	2178
-	4012
-	2075
-
-	2178
-	4012
-	2076
-	2178
-	4012
-	2077
-	2178
-	4012
-	0000
-	0000
-
-	0000
-	0000
-	0000
-	0000
-	0000
-	0000
-	0000
-	0000
-	0000
-	-99999
-
-	*/
+*/
 	return 0;
 }
 
